@@ -406,7 +406,8 @@
     <div class="panel-footer">
       <button class="btn btn-ghost" onclick="closePanel('cloudPanel')">Cancel</button>
       <button class="btn btn-ghost btn-sm" onclick="testCloudConnection()" style="margin-right:auto;">Test Connection</button>
-      <button class="btn btn-primary" onclick="saveCloudSettings()">Save & Sync Now</button>
+      <button class="btn btn-ghost" onclick="saveCloudSettings();cloudPull()">↓ Pull from Cloud</button>
+      <button class="btn btn-primary" onclick="saveCloudSettings()">Save & Sync</button>
     </div>
   </div>
 </div>
@@ -529,8 +530,10 @@ async function saveCloudSettings() {
   if (!apiKey) { alert('Please enter your JSONBin Secret Key.'); return; }
   saveCloudCfg({ apiKey, binId });
   closePanel('cloudPanel');
-  toast('Cloud sync configured!', 'success');
-  await cloudPush();
+  toast('Cloud sync configured — pulling latest data...', 'success');
+  // If binId exists, pull first (we want the cloud data, not overwrite it)
+  if (binId) await cloudPull();
+  else await cloudPush(); // No bin yet, create one
 }
 
 async function testCloudConnection() {
