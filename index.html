@@ -539,9 +539,19 @@ async function testCloudConnection() {
   if (!apiKey) { result.style.color='var(--danger)'; result.textContent='⚠️ Enter your API key first.'; return; }
   result.style.color='var(--warn)'; result.textContent='⏳ Testing...';
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b?page=1', { headers: { 'X-Master-Key': apiKey } });
-    if (res.ok) { result.style.color='var(--accent)'; result.textContent='✅ Connection successful! API key is valid.'; }
-    else { result.style.color='var(--danger)'; result.textContent='❌ Invalid API key. Please check and try again.'; }
+    const res = await fetch('https://api.jsonbin.io/v3/b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': apiKey, 'X-Bin-Name': 'Investra-Test', 'X-Bin-Private': 'true' },
+      body: JSON.stringify({ test: true })
+    });
+    const data = await res.json();
+    if (res.ok && data.metadata?.id) {
+      // Clean up test bin
+      await fetch(`https://api.jsonbin.io/v3/b/${data.metadata.id}`, { method: 'DELETE', headers: { 'X-Master-Key': apiKey } });
+      result.style.color='var(--accent)'; result.textContent='✅ Connection successful! API key is valid.';
+    } else {
+      result.style.color='var(--danger)'; result.textContent='❌ Invalid API key. Please check and try again.';
+    }
   } catch(e) { result.style.color='var(--danger)'; result.textContent='❌ Network error.'; }
 }
 function getDefaultFundLibrary() {
