@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Investra — Portfolio Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -153,6 +153,7 @@
 <header>
   <div class="logo">Investra<span> / Portfolio</span></div>
   <div class="header-right">
+    <div class="badge" id="syncStatus" onclick="openCloudSettings()" style="cursor:pointer;user-select:none;" title="Cloud sync settings">☁️ Not configured</div>
     <div class="badge" id="lastUpdated">NAV last updated: —</div>
     <button class="btn btn-ghost btn-sm" onclick="openBulkNav()">⟳ Update NAVs</button>
     <button class="btn btn-primary btn-sm" onclick="openAddCustomer()">+ Add Customer</button>
@@ -377,6 +378,39 @@
   </div>
 </div>
 
+<!-- ══ CLOUD SYNC SETTINGS PANEL ══ -->
+<div class="panel-overlay" id="cloudPanel">
+  <div class="panel" style="width:520px;">
+    <div class="panel-header">
+      <div><div class="panel-title">☁️ Cloud Sync Setup</div><div class="panel-sub">Sync your data across all devices via JSONBin</div></div>
+      <button class="close-btn" onclick="closePanel('cloudPanel')">×</button>
+    </div>
+    <div class="panel-body">
+      <div style="background:var(--faint);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:18px;font-size:13px;line-height:1.7;color:var(--muted);">
+        <div style="color:var(--text);font-weight:600;margin-bottom:6px;">How to get your free JSONBin API key:</div>
+        1. Go to <a href="https://jsonbin.io" target="_blank" style="color:var(--accent2);">jsonbin.io</a> and create a free account<br>
+        2. After logging in, click your profile → <strong style="color:var(--text);">API Keys</strong><br>
+        3. Copy your <strong style="color:var(--text);">Secret Key</strong> and paste it below<br>
+        4. Click <strong style="color:var(--text);">Save & Sync</strong> — your data will upload immediately
+      </div>
+      <div class="form-row">
+        <label class="lbl">JSONBin Secret Key</label>
+        <input class="inp" id="cloud_apikey" type="password" placeholder="$2a$10$...">
+      </div>
+      <div class="form-row">
+        <label class="lbl">Bin ID <span style="color:var(--muted);font-weight:400;">(auto-filled after first save)</span></label>
+        <input class="inp" id="cloud_binid" placeholder="Will be created automatically">
+      </div>
+      <div id="cloudTestResult" style="margin-top:10px;font-size:12px;min-height:18px;"></div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn btn-ghost" onclick="closePanel('cloudPanel')">Cancel</button>
+      <button class="btn btn-ghost btn-sm" onclick="testCloudConnection()" style="margin-right:auto;">Test Connection</button>
+      <button class="btn btn-primary" onclick="saveCloudSettings()">Save & Sync Now</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -408,12 +442,107 @@ function loadData() {
     if (raw2) fundLibrary = JSON.parse(raw2);
     else fundLibrary = getDefaultFundLibrary();
   } catch(e) { fundLibrary = getDefaultFundLibrary(); }
+  cloudPull();
 }
 function saveData() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(customers)); } catch(e) {}
+  cloudPush();
 }
 function saveFundData() {
   try { localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary)); } catch(e) {}
+  cloudPush();
+}
+
+// ── CLOUD SYNC (JSONBin) ──
+const CLOUD_KEY = 'investra_cloud';
+function getCloudCfg() {
+  try { return JSON.parse(localStorage.getItem(CLOUD_KEY)) || {}; } catch(e) { return {}; }
+}
+function saveCloudCfg(cfg) { localStorage.setItem(CLOUD_KEY, JSON.stringify(cfg)); }
+function setSyncStatus(msg, color='var(--muted)') {
+  const el = document.getElementById('syncStatus');
+  if (el) { el.textContent = msg; el.style.color = color; }
+}
+
+async function cloudPush() {
+  const cfg = getCloudCfg();
+  if (!cfg.apiKey) return;
+  const payload = { customers, fundLibrary, updatedAt: new Date().toISOString() };
+  try {
+    setSyncStatus('☁️ Syncing...', 'var(--warn)');
+    let res, data;
+    if (!cfg.binId) {
+      res = await fetch('https://api.jsonbin.io/v3/b', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': cfg.apiKey, 'X-Bin-Name': 'Investra', 'X-Bin-Private': 'true' },
+        body: JSON.stringify(payload)
+      });
+      data = await res.json();
+      if (data.metadata?.id) {
+        cfg.binId = data.metadata.id;
+        saveCloudCfg(cfg);
+        const binEl = document.getElementById('cloud_binid');
+        if (binEl) binEl.value = cfg.binId;
+      }
+    } else {
+      res = await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': cfg.apiKey },
+        body: JSON.stringify(payload)
+      });
+      data = await res.json();
+    }
+    if (res.ok) setSyncStatus('☁️ Synced ' + new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}), 'var(--accent)');
+    else { setSyncStatus('☁️ Sync failed', 'var(--danger)'); console.error('JSONBin push:', data); }
+  } catch(e) { setSyncStatus('☁️ Offline', 'var(--muted)'); }
+}
+
+async function cloudPull() {
+  const cfg = getCloudCfg();
+  if (!cfg.apiKey || !cfg.binId) { setSyncStatus('☁️ Not configured', 'var(--muted)'); return; }
+  try {
+    setSyncStatus('☁️ Loading...', 'var(--warn)');
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}/latest`, {
+      headers: { 'X-Master-Key': cfg.apiKey }
+    });
+    const data = await res.json();
+    if (res.ok && data.record) {
+      if (data.record.customers) { customers = data.record.customers; localStorage.setItem(STORE_KEY, JSON.stringify(customers)); }
+      if (data.record.fundLibrary) { fundLibrary = data.record.fundLibrary; localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary)); }
+      render();
+      setSyncStatus('☁️ Synced ' + new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}), 'var(--accent)');
+    } else { setSyncStatus('☁️ Sync error', 'var(--danger)'); }
+  } catch(e) { setSyncStatus('☁️ Offline', 'var(--muted)'); }
+}
+
+function openCloudSettings() {
+  const cfg = getCloudCfg();
+  document.getElementById('cloud_apikey').value = cfg.apiKey || '';
+  document.getElementById('cloud_binid').value = cfg.binId || '';
+  document.getElementById('cloudTestResult').textContent = '';
+  document.getElementById('cloudPanel').classList.add('open');
+}
+
+async function saveCloudSettings() {
+  const apiKey = document.getElementById('cloud_apikey').value.trim();
+  const binId = document.getElementById('cloud_binid').value.trim();
+  if (!apiKey) { alert('Please enter your JSONBin Secret Key.'); return; }
+  saveCloudCfg({ apiKey, binId });
+  closePanel('cloudPanel');
+  toast('Cloud sync configured!', 'success');
+  await cloudPush();
+}
+
+async function testCloudConnection() {
+  const apiKey = document.getElementById('cloud_apikey').value.trim();
+  const result = document.getElementById('cloudTestResult');
+  if (!apiKey) { result.style.color='var(--danger)'; result.textContent='⚠️ Enter your API key first.'; return; }
+  result.style.color='var(--warn)'; result.textContent='⏳ Testing...';
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b?page=1', { headers: { 'X-Master-Key': apiKey } });
+    if (res.ok) { result.style.color='var(--accent)'; result.textContent='✅ Connection successful! API key is valid.'; }
+    else { result.style.color='var(--danger)'; result.textContent='❌ Invalid API key. Please check and try again.'; }
+  } catch(e) { result.style.color='var(--danger)'; result.textContent='❌ Network error.'; }
 }
 function getDefaultFundLibrary() {
   return [
@@ -919,7 +1048,9 @@ function toast(msg,type='success'){const el=document.getElementById('toast');el.
 
 
 // ── FIMM PDF PARSER ──
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 // Drag and drop support for the drop zone
 document.addEventListener('DOMContentLoaded', () => {
@@ -937,6 +1068,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function parseFimmPDF(file) {
   const status = document.getElementById('fimmStatus');
+  if (typeof pdfjsLib === 'undefined') {
+    status.style.color = 'var(--danger)';
+    status.textContent = '❌ PDF library not loaded. Please check your internet connection and refresh.';
+    return;
+  }
   status.style.color = 'var(--accent)';
   status.textContent = '⏳ Reading PDF...';
 
