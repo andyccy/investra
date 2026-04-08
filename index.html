@@ -443,7 +443,7 @@
     <div class="panel-footer">
       <button class="btn btn-ghost" onclick="closePanel('cloudPanel')">Cancel</button>
       <button class="btn btn-ghost btn-sm" onclick="testCloudConnection()" style="margin-right:auto;">Test Connection</button>
-      <button class="btn btn-ghost" onclick="saveCloudSettings();cloudPull()">↓ Pull from Cloud</button>
+      <button class="btn btn-ghost" onclick="saveCloudSettings();cloudPull(true)">↓ Pull from Cloud</button>
       <button class="btn btn-primary" onclick="saveCloudSettings()">Save & Sync</button>
     </div>
   </div>
@@ -483,11 +483,17 @@ function loadData() {
   cloudPull();
 }
 function saveData() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(customers)); } catch(e) {}
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(customers));
+    localStorage.setItem('investra_local_ts', new Date().toISOString());
+  } catch(e) {}
   cloudPush();
 }
 function saveFundData() {
-  try { localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary)); } catch(e) {}
+  try {
+    localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary));
+    localStorage.setItem('investra_local_ts', new Date().toISOString());
+  } catch(e) {}
   cloudPush();
 }
 
@@ -535,7 +541,7 @@ async function cloudPush() {
   } catch(e) { setSyncStatus('☁️ Offline', 'var(--muted)'); }
 }
 
-async function cloudPull() {
+async function cloudPull(force = false) {
   const cfg = getCloudCfg();
   if (!cfg.apiKey || !cfg.binId) { setSyncStatus('☁️ Not configured', 'var(--muted)'); return; }
   try {
@@ -545,10 +551,20 @@ async function cloudPull() {
     });
     const data = await res.json();
     if (res.ok && data.record) {
-      if (data.record.customers) { customers = data.record.customers; localStorage.setItem(STORE_KEY, JSON.stringify(customers)); }
-      if (data.record.fundLibrary) { fundLibrary = data.record.fundLibrary; localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary)); }
-      render();
-      setSyncStatus('☁️ Synced ' + new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}), 'var(--accent)');
+      const cloudTs = data.record.updatedAt ? new Date(data.record.updatedAt) : new Date(0);
+      const localTs = localStorage.getItem('investra_local_ts') ? new Date(localStorage.getItem('investra_local_ts')) : new Date(0);
+      // Only overwrite local data if cloud is strictly newer, OR if force-pull requested by user
+      if (force || cloudTs > localTs) {
+        if (data.record.customers) { customers = data.record.customers; localStorage.setItem(STORE_KEY, JSON.stringify(customers)); }
+        if (data.record.fundLibrary) { fundLibrary = data.record.fundLibrary; localStorage.setItem(FUND_KEY, JSON.stringify(fundLibrary)); }
+        localStorage.setItem('investra_local_ts', cloudTs.toISOString());
+        render();
+        setSyncStatus('☁️ Synced ' + new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}), 'var(--accent)');
+      } else {
+        // Local is newer — push local data up to cloud instead
+        setSyncStatus('☁️ Local newer — pushing...', 'var(--warn)');
+        await cloudPush();
+      }
     } else { setSyncStatus('☁️ Sync error', 'var(--danger)'); }
   } catch(e) { setSyncStatus('☁️ Offline', 'var(--muted)'); }
 }
