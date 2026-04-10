@@ -710,7 +710,7 @@ function updatePrincipalHint() {
 
 function fmt(n,d=2) { return n==null?'—':(+n).toLocaleString('en-MY',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function fmtMYR(n) { const v=toDisplay(n); return fxSymbol()+fmt(v); }
-function entryNav(h) { return h.units ? h.principal/h.units : 0; }
+function entryNav(h) { if (!h.units) return 0; const p = (h.principalCcy && h.principalCcy!=='MYR' && h.principalOrig) ? h.principalOrig : h.principal; return p/h.units; }
 function hVal(h) { return (h.nav!=null && h.units) ? h.units*h.nav : 0; }
 function hGain(h) { return hVal(h)-h.principal; }
 function hGainPct(h) { return h.principal?(hGain(h)/h.principal)*100:0; }
@@ -813,12 +813,13 @@ function renderTable() {
                     <td class="mono">${(()=>{
                       if(h.principalCcy && h.principalCcy!=='MYR' && h.principalOrig){
                         const sym=FX_SYMBOLS[h.principalCcy]||'';
-                        return `<span style='color:var(--text)'>${sym}${fmt(h.principalOrig)}</span><br><small style='color:var(--muted)'>≈${fmtMYR(h.principal)}</small>`;
+                        // Show original currency amount, then RM equivalent (always RM, not display currency)
+                        return `<span style='color:var(--text)'>${sym}${fmt(h.principalOrig)}</span><br><small style='color:var(--muted)'>≈RM ${fmt(h.principal)}</small>`;
                       }
                       return fmtMYR(h.principal);
                     })()}</td>
                     <td class="mono">${fmt(h.units,3)}</td>
-                    <td class="mono">${fmt(entryNav(h),4)}</td>
+                    <td class="mono">${fmt(entryNav(h),4)}${h.principalCcy && h.principalCcy!=='MYR' ? `<br><small style='color:var(--muted)'>${h.principalCcy}</small>` : ''}</td>
                     <td class="mono ${stale?'nav-stale':'nav-fresh'}"><span class="nav-dot ${stale?'stale':'fresh'}"></span>${fmt(h.nav,4)}</td>
                     <td class="mono">${fmtMYR(hVal(h))}</td>
                     <td class="mono" style="color:${hg>=0?'var(--success)':'var(--danger)'}">
