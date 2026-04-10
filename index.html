@@ -710,6 +710,32 @@ function cPrincipal(c) { return c.holdings.reduce((s,h)=>s+h.principal,0); }
 function cValue(c) { return c.holdings.reduce((s,h)=>s+hVal(h),0); }
 function cGain(c) { return cValue(c)-cPrincipal(c); }
 function cGainPct(c) { const p=cPrincipal(c); return p?(cGain(c)/p)*100:0; }
+// Format customer summary — group by currency if mixed, single currency otherwise
+function cFmtSummary(c) {
+  const ccys = [...new Set(c.holdings.map(h => h.principalCcy || 'MYR'))];
+  if (ccys.length === 1) {
+    // All same currency — simple display
+    const sym = FX_SYMBOLS[ccys[0]] || 'RM ';
+    const p = cPrincipal(c), v = cValue(c), g = cGain(c), gp = cGainPct(c);
+    return { p: sym+fmt(p), v: sym+fmt(v), g: (g>=0?'+':'')+sym+fmt(Math.abs(g)), gp, gain: g };
+  }
+  // Mixed currencies — sum per currency
+  const byCcy = {};
+  c.holdings.forEach(h => {
+    const ccy = h.principalCcy || 'MYR';
+    if (!byCcy[ccy]) byCcy[ccy] = { p:0, v:0 };
+    byCcy[ccy].p += h.principal;
+    byCcy[ccy].v += hVal(h);
+  });
+  const sym0 = FX_SYMBOLS[ccys[0]] || 'RM ';
+  // For % gain use first currency as base
+  const g0 = byCcy[ccys[0]].v - byCcy[ccys[0]].p;
+  const gp = byCcy[ccys[0]].p ? (g0/byCcy[ccys[0]].p)*100 : 0;
+  const pStr = Object.entries(byCcy).map(([ccy,d])=>(FX_SYMBOLS[ccy]||'RM ')+fmt(d.p)).join(' + ');
+  const vStr = Object.entries(byCcy).map(([ccy,d])=>(FX_SYMBOLS[ccy]||'RM ')+fmt(d.v)).join(' + ');
+  const gStr = Object.entries(byCcy).map(([ccy,d])=>{ const g=d.v-d.p; return (g>=0?'+':'')+(FX_SYMBOLS[ccy]||'RM ')+fmt(Math.abs(g)); }).join(' / ');
+  return { p: pStr, v: vStr, g: gStr, gp, gain: g0 };
+}
 function tagCls(t) { return t==='Equity'?'tag-eq':t==='ETF'?'tag-etf':'tag-ut'; }
 
 // ── STATS ──
@@ -754,7 +780,7 @@ function renderTable() {
   } else {
     body.innerHTML = slice.flatMap(c=>{
       const exp = expandedIds.has(c.id);
-      const p=cPrincipal(c), v=cValue(c), g=cGain(c), gp=cGainPct(c);
+      const _s=cFmtSummary(c), p=cPrincipal(c), v=cValue(c), g=cGain(c), gp=_s.gp;
       const staleCount = c.holdings.filter(h=>h.navDate!==today()).length;
       const fundTags = [...new Set(c.holdings.map(h=>h.type))].map(t=>`<span class="tag ${tagCls(t)}" style="font-size:10px;padding:1px 5px;">${t}</span>`).join(' ');
 
@@ -770,11 +796,11 @@ function renderTable() {
           <br><span style="display:inline-flex;gap:3px;flex-wrap:wrap;margin-top:3px;">${fundTags}</span>
           ${staleCount?`<br><small style="color:var(--warn);font-size:11px;">⚠ ${staleCount} stale NAV${staleCount>1?'s':''}</small>`:''}
         </td>
-        <td class="mono">${fmtMYR(p)}</td>
-        <td class="mono"><strong>${fmtMYR(v)}</strong></td>
+        <td class="mono">${_s.p}</td>
+        <td class="mono"><strong>${_s.v}</strong></td>
         <td class="mono" style="color:${g>=0?'var(--success)':'var(--danger)'}">
           ${g>=0?'+':''}${fmt(gp,2)}%
-          <br><small>${g>=0?'+':''}${fmtMYR(g)}</small>
+          <br><small>${_s.g}</small>
         </td>
         <td onclick="event.stopPropagation()" style="white-space:nowrap;">
           <div class="actions">
